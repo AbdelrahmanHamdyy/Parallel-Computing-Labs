@@ -54,13 +54,13 @@ int main(int argc, char *argv[]) {
         // Read matrix data from file
         for (int i = 0; i < rows; i++) {
             for (int j = 0; j < cols; j++) {
-                fscanf(input_file, "%f", &matrix[i][j]);
+                fscanf(inputFile, "%f", &matrix[i][j]);
             }
         }
 
         // Read vector data from file
         for (int i = 0; i < rows; i++) {
-            fscanf(input_file, "%f", &vector[i]);
+            fscanf(inputFile, "%f", &vector[i]);
         }
 
         // Allocate device memory for matrix, vector, and output
@@ -94,7 +94,7 @@ int main(int argc, char *argv[]) {
 
         // Write result to output file
         for (int i = 0; i < rows; i++) {
-            fprintf(output_file, "%f\n", out[i]);
+            fprintf(outputFile, "%f\n", out[i]);
         }
 
         // Free device memory
