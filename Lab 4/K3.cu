@@ -15,28 +15,23 @@ using namespace std;
 
 // Kernel function for 3D convolution
 __global__ void outputTileConvolutionKernel(const unsigned char *inputImages, unsigned char *outputImages, const float *mask, int width, int height, int channels, int maskSize, int batchSize) {
-    // We will build a kernel that applies tiling to the convolution operation
-    // The kernel will use shared memory to store the input tile
-    // The input tile size will be passed as an argument to the kernel
     extern __shared__ float tile[];
 
-    // Tile size
-    int tileWidth = blockDim.x + maskSize;
-    int tileHeight = blockDim.y + maskSize;
+    int maskRadius = maskSize / 2;
 
-    // Pixel index in the output image
+    int tileWidth = blockDim.x + 2 * maskRadius;
+    int tileHeight = blockDim.y + 2 * maskRadius;
+
+    int tileStartX = (blockIdx.x * blockDim.x) - maskRadius;
+    int tileStartY = (blockIdx.y * blockDim.y) - maskRadius;
+
     int xIndex = blockIdx.x * blockDim.x + threadIdx.x;
     int yIndex = blockIdx.y * blockDim.y + threadIdx.y;
     int zIndex = blockIdx.z * blockDim.z + threadIdx.z;
 
-    // Starting index of the tile 
-    int tileStartX = (blockIdx.x * blockDim.x) - (maskSize / 2);
-    int tileStartY = (blockIdx.y * blockDim.y) - (maskSize / 2);
-
-    // Load the input tile into shared memory
     for (int c = 0; c < channels; c++) {
-        for (int i = threadIdx.y; i < tileHeight; i += blockDim.y) {
-            for (int j = threadIdx.x; j < tileWidth; j += blockDim.x) {
+        for (int i = 0; i < tileHeight; i++) {
+            for (int j = 0; j < tileWidth; j++) {
                 int x = tileStartX + j;
                 int y = tileStartY + i;
                 int tileIndex = (i * tileWidth + j) * channels + c;
@@ -47,10 +42,8 @@ __global__ void outputTileConvolutionKernel(const unsigned char *inputImages, un
         }
     }
 
-    // Synchronize threads to ensure all threads have loaded the input tile
     __syncthreads();
 
-    // Apply the mask to the input tile and write the result to the output image
     if (xIndex < width && yIndex < height && zIndex < batchSize) {
         float sum = 0.0;
         for (int i = 0; i < maskSize; i++)
