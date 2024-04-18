@@ -14,47 +14,37 @@ typedef long long ll;
 using namespace std;
 
 // Kernel function for 3D convolution
-__global__ void outputTileConvolutionKernel(const unsigned char *inputImages, unsigned char *outputImages, const float *mask, int width, int height, int channels, int maskSize, int batchSize) {
+__global__ void inputTileConvolutionKernel(const unsigned char *inputImages, unsigned char *outputImages, const float *mask, int width, int height, int channels, int maskSize, int batchSize) {
     extern __shared__ float tile[];
-
-    int origBlockDimX = blockDim.x - (maskSize - 1);
-    int origBlockDimY = blockDim.y - (maskSize - 1);
 
     int maskRadius = maskSize / 2;
 
-    int tileWidth = origBlockDimX + 2 * maskRadius;
-    int tileHeight = origBlockDimY + 2 * maskRadius;
+    int tileDim = TILE_SIZE + 2 * maskRadius;
 
-    int tileStartX = (blockIdx.x * origBlockDimX) - maskRadius;
-    int tileStartY = (blockIdx.y * origBlockDimY) - maskRadius;
+    int outCol = blockIdx.x * TILE_SIZE + threadIdx.x;
+    int outRow = blockIdx.y * TILE_SIZE + threadIdx.y;
 
-    int xIndex = blockIdx.x * origBlockDimX + threadIdx.x;
-    int yIndex = blockIdx.y * origBlockDimY + threadIdx.y;
-    int zIndex = blockIdx.z * blockDim.z + threadIdx.z;
+    int inCol = outCol - maskRadius;
+    int inRow = outRow - maskRadius;
+    int batchIndex = blockIdx.z * blockDim.z + threadIdx.z;
 
-    for (int c = 0; c < channels; c++) {
-        for (int i = 0; i < tileHeight; i++) {
-            for (int j = 0; j < tileWidth; j++) {
-                int x = tileStartX + j;
-                int y = tileStartY + i;
-                int tileIndex = (i * tileWidth + j) * channels + c;
-                int imgIndex = (zIndex * height * width + y * width + x) * channels + c;
-                bool validPixel = (x >= 0 && x < width && y >= 0 && y < height);
-                tile[tileIndex] = validPixel ? inputImages[imgIndex] : 0;
-            }
-        }
-    }
+    int tileIndex = threadIdx.y * tileDim + threadIdx.x;
+    int imgIndex = (batchIndex * height * width + inRow * width + inCol) * channels;
+    bool validPixel = (inCol >= 0 && inCol < width && inRow >= 0 && inRow < height);
+
+    tile[tileIndex] = validPixel ? inputImages[imgIndex] + inputImages[imgIndex + 1] + inputImages[imgIndex + 2] : 0;
 
     __syncthreads();
 
-    if (xIndex < width && yIndex < height && zIndex < batchSize && threadIdx.x < origBlockDimX && threadIdx.y < origBlockDimY) {
+    if (outCol < width && outRow < height && batchIndex < batchSize && threadIdx.x < TILE_SIZE && threadIdx.y < TILE_SIZE) {
         float sum = 0.0;
         for (int i = 0; i < maskSize; i++)
             for (int j = 0; j < maskSize; j++)
-                for (int c = 0; c < channels; c++)
-                    sum += mask[i * maskSize + j] * tile[((threadIdx.y + i) * tileWidth + threadIdx.x + j) * channels + c];
-        outputImages[zIndex * height * width + yIndex * width + xIndex] = (unsigned char)sum;
+                sum += mask[i * maskSize + j] * tile[(threadIdx.y + i) * tileDim + threadIdx.x + j];
+        outputImages[batchIndex * height * width + outRow * width + outCol] = (unsigned char)sum;
     }
+
+    __syncthreads();
 }
 
 int main(int argc, char **argv) {
@@ -184,10 +174,10 @@ int main(int argc, char **argv) {
     dim3 grid((width + block.x - 1) / TILE_SIZE, (height + block.y - 1) / TILE_SIZE, (batchSize + block.z - 1) / block.z);
 
     // Calculate shared memory size
-    int sharedMemorySize = pow(TILE_SIZE + maskSize - 1, 2) * channels * sizeof(float);
+    int sharedMemorySize = pow(TILE_SIZE + maskSize - 1, 2) * sizeof(float);
 
     // Launch kernel for all images in the batch
-    outputTileConvolutionKernel<<<grid, block, sharedMemorySize>>>(d_inputImages, d_outputImages, d_mask, width, height, channels, maskSize, batchSize);
+    inputTileConvolutionKernel<<<grid, block, sharedMemorySize>>>(d_inputImages, d_outputImages, d_mask, width, height, channels, maskSize, batchSize);
 
     // Copy results (output images) from device to host
     cudaMemcpy(outputImages, d_outputImages, imgSize * batchSize * sizeof(unsigned char), cudaMemcpyDeviceToHost);

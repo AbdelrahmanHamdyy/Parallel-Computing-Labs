@@ -19,39 +19,36 @@ __global__ void outputTileConvolutionKernel(const unsigned char *inputImages, un
 
     int maskRadius = maskSize / 2;
 
-    int tileWidth = blockDim.x + 2 * maskRadius;
-    int tileHeight = blockDim.y + 2 * maskRadius;
-
-    int tileStartX = (blockIdx.x * blockDim.x) - maskRadius;
-    int tileStartY = (blockIdx.y * blockDim.y) - maskRadius;
+    int tileDim = TILE_SIZE + maskSize - 1;
 
     int xIndex = blockIdx.x * blockDim.x + threadIdx.x;
     int yIndex = blockIdx.y * blockDim.y + threadIdx.y;
-    int zIndex = blockIdx.z * blockDim.z + threadIdx.z;
+    int batchIndex = blockIdx.z * blockDim.z + threadIdx.z;
 
-    for (int c = 0; c < channels; c++) {
-        for (int i = 0; i < tileHeight; i++) {
-            for (int j = 0; j < tileWidth; j++) {
-                int x = tileStartX + j;
-                int y = tileStartY + i;
-                int tileIndex = (i * tileWidth + j) * channels + c;
-                int imgIndex = (zIndex * height * width + y * width + x) * channels + c;
-                bool validPixel = (x >= 0 && x < width && y >= 0 && y < height);
-                tile[tileIndex] = validPixel ? inputImages[imgIndex] : 0;
-            }
+    for (int i = threadIdx.y; i < tileDim; i += blockDim.y) {
+        for (int j = threadIdx.x; j < tileDim; j += blockDim.x) {
+            int inCol = (blockIdx.x * blockDim.x) - maskRadius + j;
+            int inRow = (blockIdx.y * blockDim.y) - maskRadius + i;
+            int imgIndex = (batchIndex * height * width + inRow * width + inCol) * channels;
+            int tileIndex = i * tileDim + j;
+            bool validPixel = (inCol >= 0 && inCol < width && inRow >= 0 && inRow < height);
+            tile[tileIndex] = validPixel ? inputImages[imgIndex] + inputImages[imgIndex + 1] + inputImages[imgIndex + 2] : 0;
         }
     }
 
     __syncthreads();
 
-    if (xIndex < width && yIndex < height && zIndex < batchSize) {
+    if (xIndex < width && yIndex < height && batchIndex < batchSize) {
         float sum = 0.0;
-        for (int i = 0; i < maskSize; i++)
-            for (int j = 0; j < maskSize; j++)
-                for (int c = 0; c < channels; c++)
-                    sum += mask[i * maskSize + j] * tile[((threadIdx.y + i) * tileWidth + threadIdx.x + j) * channels + c];
-        outputImages[zIndex * height * width + yIndex * width + xIndex] = (unsigned char)sum;
+        for (int i = 0; i < maskSize; i++) {
+            for (int j = 0; j < maskSize; j++) {
+                sum += mask[i * maskSize + j] * tile[(threadIdx.y + i) * tileDim + threadIdx.x + j];
+            }
+        }
+        outputImages[batchIndex * height * width + yIndex * width + xIndex] = (unsigned char)sum;
     }
+
+    __syncthreads();
 }
 
 int main(int argc, char **argv) {
@@ -178,10 +175,10 @@ int main(int argc, char **argv) {
 
     // Calculate grid and block dimensions
     dim3 block(TILE_SIZE, TILE_SIZE, 1);
-    dim3 grid((width + block.x - 1) / block.x, (height + block.y - 1) / block.y, (batchSize + block.z - 1) / block.z);
+    dim3 grid((width + block.x - 1) / TILE_SIZE, (height + block.y - 1) / TILE_SIZE, (batchSize + block.z - 1) / block.z);
 
     // Calculate shared memory size
-    int sharedMemorySize = pow(TILE_SIZE + maskSize, 2) * channels * sizeof(float);
+    int sharedMemorySize = pow(TILE_SIZE + maskSize - 1, 2) * sizeof(float);
 
     // Launch kernel for all images in the batch
     outputTileConvolutionKernel<<<grid, block, sharedMemorySize>>>(d_inputImages, d_outputImages, d_mask, width, height, channels, maskSize, batchSize);
