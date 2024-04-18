@@ -1,5 +1,6 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define BLOCK_SIZE 16
 
 typedef long long ll;
 
@@ -160,7 +161,7 @@ int main(int argc, char **argv) {
     cudaMemcpy(d_inputImages, inputImages, imgSize * batchSize * sizeof(unsigned char), cudaMemcpyHostToDevice);
 
     // Calculate grid and block dimensions
-    dim3 block(16, 16, 1);
+    dim3 block(BLOCK_SIZE, BLOCK_SIZE, 1);
     dim3 grid((width + block.x - 1) / block.x, (height + block.y - 1) / block.y, (batchSize + block.z - 1) / block.z);
 
     // Launch kernel for all images in the batch

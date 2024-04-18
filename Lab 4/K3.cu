@@ -1,5 +1,6 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define TILE_SIZE 16
 
 typedef long long ll;
 
@@ -38,11 +39,10 @@ __global__ void outputTileConvolutionKernel(const unsigned char *inputImages, un
             for (int j = threadIdx.x; j < tileWidth; j += blockDim.x) {
                 int x = tileStartX + j;
                 int y = tileStartY + i;
-                if (x >= 0 && x < width && y >= 0 && y < height) {
-                    tile[(i * tileWidth + j) * channels + c] = inputImages[(zIndex * height * width + y * width + x) * channels + c];
-                } else {
-                    tile[(i * tileWidth + j) * channels + c] = 0;
-                }
+                int tileIndex = (i * tileWidth + j) * channels + c;
+                int imgIndex = (zIndex * height * width + y * width + x) * channels + c;
+                bool validPixel = (x >= 0 && x < width && y >= 0 && y < height);
+                tile[tileIndex] = validPixel ? inputImages[imgIndex] : 0;
             }
         }
     }
@@ -184,11 +184,11 @@ int main(int argc, char **argv) {
     cudaMemcpy(d_inputImages, inputImages, imgSize * batchSize * sizeof(unsigned char), cudaMemcpyHostToDevice);
 
     // Calculate grid and block dimensions
-    dim3 block(16, 16, 1);
+    dim3 block(TILE_SIZE, TILE_SIZE, 1);
     dim3 grid((width + block.x - 1) / block.x, (height + block.y - 1) / block.y, (batchSize + block.z - 1) / block.z);
 
     // Calculate shared memory size
-    int sharedMemorySize = pow(16 + maskSize, 2) * channels * sizeof(float);
+    int sharedMemorySize = pow(TILE_SIZE + maskSize, 2) * channels * sizeof(float);
 
     // Launch kernel for all images in the batch
     outputTileConvolutionKernel<<<grid, block, sharedMemorySize>>>(d_inputImages, d_outputImages, d_mask, width, height, channels, maskSize, batchSize);
