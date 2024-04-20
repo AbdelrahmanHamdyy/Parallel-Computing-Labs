@@ -32,7 +32,7 @@ __global__ void inputTileConvolutionKernel(const unsigned char *inputImages, uns
     int imgIndex = (batchIndex * height * width + inRow * width + inCol) * channels;
     bool validPixel = (inCol >= 0 && inCol < width && inRow >= 0 && inRow < height);
 
-    tile[tileIndex] = validPixel ? inputImages[imgIndex] + inputImages[imgIndex + 1] + inputImages[imgIndex + 2] : 0;
+    tile[tileIndex] = validPixel ? (float)inputImages[imgIndex] + (float)inputImages[imgIndex + 1] + (float)inputImages[imgIndex + 2] : 0;
 
     __syncthreads();
 
@@ -41,6 +41,9 @@ __global__ void inputTileConvolutionKernel(const unsigned char *inputImages, uns
         for (int i = 0; i < maskSize; i++)
             for (int j = 0; j < maskSize; j++)
                 sum += mask[i * maskSize + j] * tile[(threadIdx.y + i) * tileDim + threadIdx.x + j];
+
+        sum = sum < 0 ? 0 : sum;
+        sum = sum > 255 ? 255 : sum;
         outputImages[batchIndex * height * width + outRow * width + outCol] = (unsigned char)sum;
     }
 

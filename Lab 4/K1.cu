@@ -28,13 +28,14 @@ __global__ void basicConvolutionKernel(const unsigned char *inputImages, unsigne
                 int inCol = outCol - maskRadius + maskCol;
                 if (inRow >= 0 && inRow < height && inCol >= 0 && inCol < width) {
                     for (int c = 0; c < channels; c++) {
-                        sum += mask[maskRow * maskSize + maskCol] * inputImages[batchIndex * width * height * channels + inRow * width * channels + inCol * channels + c];
+                        sum += mask[maskRow * maskSize + maskCol] * (float)inputImages[batchIndex * width * height * channels + inRow * width * channels + inCol * channels + c];
                     }
                 }
             }
         }
-        int outIdx = batchIndex * width * height + outRow * width + outCol;
-        outputImages[outIdx] = (unsigned char) sum;
+        sum = sum < 0 ? 0 : sum;
+        sum = sum > 255 ? 255 : sum;
+        outputImages[batchIndex * width * height + outRow * width + outCol] = (unsigned char) sum;
     }
 }
 
