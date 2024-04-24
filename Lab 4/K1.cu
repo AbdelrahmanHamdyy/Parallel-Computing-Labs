@@ -15,26 +15,37 @@ using namespace std;
 
 // Kernel function for 3D convolution
 __global__ void basicConvolutionKernel(const unsigned char *inputImages, unsigned char *outputImages, const float *mask, int width, int height, int channels, int maskSize, int batchSize) {
+    // Calculate the output image coordinates (outCol, outRow) and batch index
     int outCol = blockIdx.x * blockDim.x + threadIdx.x;
     int outRow = blockIdx.y * blockDim.y + threadIdx.y;
     int batchIndex = blockIdx.z * blockDim.z + threadIdx.z;
 
+    // Perform convolution only if the output image coordinates are within the image dimensions and the batch index is less than the batch size
     if (outCol < width && outRow < height && batchIndex < batchSize) {
+        // Mask Radius
         int maskRadius = maskSize / 2;
+        // Initialize sum to 0
         float sum = 0.0;
+        // Iterate over the mask
         for (int maskRow = 0; maskRow < maskSize; maskRow++) {
             for (int maskCol = 0; maskCol < maskSize; maskCol++) {
+                // Calculate the input image coordinates (inCol, inRow) for the current mask element
                 int inRow = outRow - maskRadius + maskRow;
                 int inCol = outCol - maskRadius + maskCol;
+                // Check if the input image coordinates are within the image dimensions
                 if (inRow >= 0 && inRow < height && inCol >= 0 && inCol < width) {
+                    // Iterate over the channels and perform convolution
                     for (int c = 0; c < channels; c++) {
+                        // Multiply the mask element with the corresponding input image pixel value and add it to the sum
                         sum += mask[maskRow * maskSize + maskCol] * (float)inputImages[batchIndex * width * height * channels + inRow * width * channels + inCol * channels + c];
                     }
                 }
             }
         }
+        // Clip the sum to the range [0, 255]
         sum = sum < 0 ? 0 : sum;
         sum = sum > 255 ? 255 : sum;
+        // Store the result in the output image
         outputImages[batchIndex * width * height + outRow * width + outCol] = (unsigned char) sum;
     }
 }

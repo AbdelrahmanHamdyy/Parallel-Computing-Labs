@@ -15,38 +15,57 @@ using namespace std;
 
 // Kernel function for 3D convolution
 __global__ void inputTileConvolutionKernel(const unsigned char *inputImages, unsigned char *outputImages, const float *mask, int width, int height, int channels, int maskSize, int batchSize) {
+    // Shared memory for input tile, the size of the tile is (TILE_SIZE + maskSize - 1)^2 passed as an argument
     extern __shared__ float tile[];
 
+    // Mask Radius
     int maskRadius = maskSize / 2;
 
+    // Tile dimension accounting for the mask radius
     int tileDim = TILE_SIZE + 2 * maskRadius;
 
+    // Calculate the output image coordinates (outCol, outRow) inside the tile padded with mask radius
     int outCol = blockIdx.x * TILE_SIZE + threadIdx.x;
     int outRow = blockIdx.y * TILE_SIZE + threadIdx.y;
 
+    // Calculate the input image coordinates (inCol, inRow) after applying the mask radius offset to the output image coordinates
     int inCol = outCol - maskRadius;
     int inRow = outRow - maskRadius;
+
+    // Calculate the batch index based on the block index
     int batchIndex = blockIdx.z * blockDim.z + threadIdx.z;
 
+    // Calculate the tile index
     int tileIndex = threadIdx.y * tileDim + threadIdx.x;
+    // Calculate the input image index based on the batch index, input row, input column, and channel
     int imgIndex = (batchIndex * height * width + inRow * width + inCol) * channels;
+    // Check if the input image pixel is valid (Boundary check)
     bool validPixel = (inCol >= 0 && inCol < width && inRow >= 0 && inRow < height);
 
+    // Load the valid input image pixels into the tile (Only RGB channels are considered) and fill the rest with 0
     tile[tileIndex] = validPixel ? (float)inputImages[imgIndex] + (float)inputImages[imgIndex + 1] + (float)inputImages[imgIndex + 2] : 0;
 
+    // Synchronize threads to ensure all threads have loaded the input image pixels into the tile
     __syncthreads();
 
+    // Boundary check for the output image coordinates, batch index, and thread index
     if (outCol < width && outRow < height && batchIndex < batchSize && threadIdx.x < TILE_SIZE && threadIdx.y < TILE_SIZE) {
+        // Initialize sum to 0
         float sum = 0.0;
+        // Iterate over the mask
         for (int i = 0; i < maskSize; i++)
             for (int j = 0; j < maskSize; j++)
+                // Multiply the mask element with the corresponding input image pixel value and add it to the sum
                 sum += mask[i * maskSize + j] * tile[(threadIdx.y + i) * tileDim + threadIdx.x + j];
 
+        // Clip the sum to the range [0, 255]
         sum = sum < 0 ? 0 : sum;
         sum = sum > 255 ? 255 : sum;
+        // Store the result in the output image after linearizing the 2D output image to 1D
         outputImages[batchIndex * height * width + outRow * width + outCol] = (unsigned char)sum;
     }
 
+    // Synchronize threads to ensure all threads have completed the convolution operation
     __syncthreads();
 }
 
