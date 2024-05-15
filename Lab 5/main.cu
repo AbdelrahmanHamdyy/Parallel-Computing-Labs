@@ -63,7 +63,6 @@ __device__ void binarySearch(double *input, ll left, ll right, double target, ll
             right = mid - 1;
         }
     }
-    *output = -1;
 }
 
 // Parallel Binary Search using multiple threads without dynamic parallelism
@@ -154,29 +153,30 @@ __global__ void parallelRecursiveBinarySearch(double *input, ll left, ll right, 
     // Each thread will call the kernel recursively on its chunk
     // If the maximum recursion depth is reached, the thread will continue with sequential binary search on its chunk
 
-    // Calculate the capacity of the array
-    ll capacity = right - left;
+    // [Size] Calculate the capacity of the array
+    ll numberOfElements = right - left + 1;
 
-    // Determine if the array should be split into chunks or not
-    bool split = capacity > NUM_THREADS;
+    // [Thread Index] Thread ID within the block
+    ll threadIndex = threadIdx.x;
 
-    // Check if the depth is less than the maximum depth or the array cannot be split any further
-    if (depth <= maxDepth || !split) {
-        // If yes, perform sequential binary search on the current chunk
-        binarySearch(input, left, right, target, output);
-    } else {
-        // Thread ID within the block
-        ll threadIndex = threadIdx.x;
+    // [Split Flag] Determine if the array should be split into chunks or not
+    bool split = numberOfElements > NUM_THREADS;
 
-        // Determine if this thread is the last one
-        bool lastThread = threadIndex == NUM_THREADS - 1;
+    // [Last Thread Flag] Determine if this thread is the last one
+    bool lastThread = threadIndex == NUM_THREADS - 1;
 
-        // Calculate the number of elements in the array
-        ll n = right - left + 1;
+    // [First Thread Flag] Determine if this thread is the first one placed at the root meaning that it still didn't traverse the tree
+    bool firstThread = threadIndex == 0 && depth == 0;
 
-        // Calculate the chunk size for each thread
-        ll chunkSize = (n + NUM_THREADS - 1) / NUM_THREADS;
+    // [Chunk Size] Calculate the chunk size for each thread
+    ll chunkSize = numberOfElements / NUM_THREADS;
 
+    // [Initialization] We need to set the output to -1 for the first thread before any recursive calls
+    if (firstThread) *output = -1;
+
+    // [Depth] Check if the depth is less than the maximum depth and the array can be split even furthur
+    if (depth < maxDepth && split) {
+        /* UPDATE Left & Right */
         // Calculate the start index according to the thread index
         // So that each thread will work on a separate chunk
         left += threadIndex * chunkSize;
@@ -188,6 +188,9 @@ __global__ void parallelRecursiveBinarySearch(double *input, ll left, ll right, 
 
         // [CDP] Recursive call to the kernel with the new chunk and incremented depth
         parallelRecursiveBinarySearch<<<1, NUM_THREADS>>>(input, left, right, target, output, depth + 1, maxDepth);
+    } else { // Maximum depth reached or no splits left to apply on the input
+        // [Binary Search] If yes, perform sequential binary search on the current chunk
+        binarySearch(input, left, right, target, output);
     }
 }
 
