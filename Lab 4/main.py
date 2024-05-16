@@ -89,7 +89,7 @@ def writeOutput(output_images,image_names,output_dir):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     for i,image in enumerate(output_images):
-        new_image_path = os.path.join(output_dir,image_names[i].split('/')[-1])
+        new_image_path = os.path.join(output_dir,image_names[i].split('\\')[-1])
         cv2.imwrite(new_image_path,image)
 
 if(len(sys.argv) == 1):
